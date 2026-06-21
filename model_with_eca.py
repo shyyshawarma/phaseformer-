@@ -92,9 +92,12 @@ class GDFN(nn.Module):
 		super(GDFN, self).__init__()
 
 		hidden_channels = int(channels * expansion_factor)
+
 		self.project_in = nn.Conv2d(channels, hidden_channels * 2, kernel_size=1, bias=False)
+
 		self.conv = nn.Conv2d(hidden_channels * 2, hidden_channels * 2, kernel_size=3, padding=1,
 							  groups=hidden_channels * 2, bias=False)
+		
 		self.project_out = nn.Conv2d(hidden_channels, channels, kernel_size=1, bias=False)
 
 	def forward(self, x):
@@ -166,14 +169,16 @@ class UpSample1(nn.Module):
 								  nn.PixelShuffle(2))
 
 	def forward(self, x):
-		return self.body(x)  
+		return self.body(x)  	
 
 
 class Restormer(nn.Module):
 	def __init__(self, num_blocks=[2, 3, 3, 4], num_heads=[1, 2, 4, 8], channels=[16, 32, 64, 128], num_refinement=4,
 				 expansion_factor=2.66, ch=[16,16,32,64]):
+		
 		super(Restormer, self).__init__()
 		# self.sig=nn.Sigmoid()
+
 		self.attention = nn.ModuleList([ECA(num_ch) for num_ch in ch])
 	   
 		self.embed_conv_rgb = nn.Conv2d(3, channels[0], kernel_size=3, padding=1, bias=False)
@@ -206,6 +211,7 @@ class Restormer(nn.Module):
 	def forward(self,RGB_input):
 
 		fo_rgb = self.embed_conv_rgb(RGB_input)
+
 		out_enc_rgb1 = self.encoders[0](fo_rgb)
 		out_enc_rgb2 = self.encoders[1](self.downs[0](out_enc_rgb1))
 		out_enc_rgb3 = self.encoders[2](self.downs[1](out_enc_rgb2))
@@ -218,7 +224,10 @@ class Restormer(nn.Module):
 		out_dec2 = self.decoders[1](self.reduces[1](torch.cat([self.ups[1](out_dec3),self.attention[1](out_enc_rgb2)], dim=1)))
 
 		fd = self.decoders[2](torch.cat([self.ups[2](out_dec2),self.attention[2](out_enc_rgb1)], dim=1))
+
 		fr = self.refinement(fd)  
+		#fr is final output 
+		
 		outi=self.ups1(fr) 
 
 		return self.output(self.outputl(fr)),self.output(self.output1(outi))
