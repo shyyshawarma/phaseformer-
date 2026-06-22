@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 # Training settings
 parser = argparse.ArgumentParser(description='Phaseformer')
-parser.add_argument('--dataset', required=False, default='./uw_data/', help='dataset folder')
+parser.add_argument('--dataset', required=False, default='./Datasets/', help='dataset root folder')
 parser.add_argument('--batch_size', type=int, default=1, help='training batch size')
 parser.add_argument('--test_batch_size', type=int, default=1, help='testing batch size')
 parser.add_argument('--finetune', default=False, help='to finetune')
@@ -126,17 +126,18 @@ else:
 print(f'Trainable parameters: {count_parameters(net_g)}')
 
 print('===> Loading datasets')
+dataset_root = os.path.expanduser(opt.dataset)
 root_dirs_train = {
-    'input': ['./uw_data/train/a'],
-    'reference': ['./uw_data/train/b']
+    'input': [os.path.join(dataset_root, 'train', 'Rain13K', 'input')],
+    'reference': [os.path.join(dataset_root, 'train', 'Rain13K', 'target')]
 }
 dataset_train = get_dataset(root_dirs_train)
 data_loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=opt.batch_size, shuffle=True)
 print(len(data_loader_train))
 
 root_dirs_test = {
-    'input': ['./uw_data/test/a'],
-    'reference': ['./uw_data/test/b']
+    'input': [os.path.join(dataset_root, 'test', 'Rain100L', 'input')],
+    'reference': [os.path.join(dataset_root, 'test', 'Rain100L', 'target')]
 }
 dataset_test = get_dataset(root_dirs_test)
 data_loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=opt.batch_size, shuffle=True)
