@@ -23,6 +23,7 @@ parser.add_argument('--dataset', required=False, default='./Datasets/', help='da
 parser.add_argument('--batch_size', type=int, default=1, help='training batch size')
 parser.add_argument('--test_batch_size', type=int, default=1, help='testing batch size')
 parser.add_argument('--finetune', default=False, help='to finetune')
+parser.add_argument('--resume', type=str, default='', help='path to checkpoint to resume from')
 parser.add_argument('--ngf', type=int, default=64, help='generator filters in first conv layer')
 parser.add_argument('--ndf', type=int, default=64, help='discriminator filters in first conv layer')
 parser.add_argument('--epoch_count', type=int, default=0, help='the starting epoch count')
@@ -117,9 +118,26 @@ if opt.cuda:
 
 device = torch.device("cuda:0" if opt.cuda else "cpu")
 
-if opt.finetune:
-    G_path = 'Provide the path to the checkpoint you wish to continue from'
-    net_g = torch.load(G_path).to(device)
+checkpoint = None
+checkpoint_path = None
+start_epoch = opt.epoch_count
+
+if opt.resume:
+    checkpoint_path = opt.resume
+elif opt.finetune:
+    checkpoint_path = 'Provide the path to the checkpoint you wish to continue from'
+
+if checkpoint_path:
+    print(f"Loading checkpoint from {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    
+    # Handle both full checkpoint saves and legacy model saves
+    if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
+        net_g = Restormer().to(device)
+        net_g.load_state_dict(checkpoint['model_state'])
+        start_epoch = checkpoint.get('epoch', 0) + 1
+    else:
+        net_g = checkpoint.to(device)
 else:
     net_g = Restormer().to(device)
 
@@ -210,6 +228,11 @@ Charbonnier_loss = nn.SmoothL1Loss().to(device)
 optimizer_g = optim.Adam(net_g.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
 net_g_scheduler = get_scheduler(optimizer_g, opt)
 
+# Load optimizer state if resuming
+if checkpoint_path and isinstance(checkpoint, dict) and 'optimizer_state' in checkpoint:
+    optimizer_g.load_state_dict(checkpoint['optimizer_state'])
+    print("Loaded optimizer state")
+
 output_dir_train = './images_train'
 if not os.path.exists(output_dir_train):
     os.makedirs(output_dir_train)
@@ -245,7 +268,7 @@ def calculate_y_psnr(pred, target):
 # ---------------------------------------------------------------------
 # Training loop
 # ---------------------------------------------------------------------
-for epoch in range(opt.epoch_count, opt.niter + opt.niter_decay + 1):
+for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
     net_g.train()
 
     train_pbar = tqdm(data_loader_train, desc=f"Epoch [{epoch}] Train", unit="batch")
@@ -314,5 +337,11 @@ for epoch in range(opt.epoch_count, opt.niter + opt.niter_decay + 1):
         os.mkdir(os.path.join("checkpoint", opt.dataset))
 
     net_g_model_out_path = f"checkpoint/{opt.dataset}/netG_model_epoch_{epoch}_psnr_{avg_ypsnr:.4f}.pth"
-    torch.save(net_g, net_g_model_out_path)
+    checkpoint_dict = {
+        'model_state': net_g.state_dict(),
+        'optimizer_state': optimizer_g.state_dict(),
+        'epoch': epoch,
+        'avg_ypsnr': avg_ypsnr
+    }
+    torch.save(checkpoint_dict, net_g_model_out_path)
     print(f"Checkpoint saved at {net_g_model_out_path}")
