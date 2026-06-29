@@ -215,9 +215,11 @@ class Restormer(nn.Module):
 
 		self.refinement = nn.Sequential(*[TransformerBlock(channels[1], num_heads[0], expansion_factor)
 										  for _ in range(num_refinement)])
+
 		self.output = nn.Conv2d(8, 3, kernel_size=3, padding=1, bias=False)
 		self.output1= nn.Conv2d(16, 8, kernel_size=3, padding=1, bias=False)
-								 
+		self.outputl=nn.Conv2d(32, 8, kernel_size=3, padding=1, bias=False)
+
 		self.ups2 = UpSample1(16)
 		self.outputl=nn.Conv2d(32, 8, kernel_size=3, padding=1, bias=False)
 								 
