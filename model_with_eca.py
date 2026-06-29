@@ -72,16 +72,27 @@ class MDTA(nn.Module):
 	def forward(self, x):
 		b, c, h, w = x.shape
 		q, k, v = self.qkv_conv(self.qkv(x)).chunk(3, dim=1)
+		#qkv this runs a 1x1 concolution that  has 48/channelsx3 filters this will give 3xchannles, each for q,k,v and then depthwise conv is used it is basically that each channel is convolved with its own filter, so the number of filters is equal to the number of channels. This is done to reduce the number of parameters and computation (and overfitting). The output of this conv is then split into 3 parts for q,k,v.
 		  
 		q = inv_mag(q)
 		k = inv_mag(k)
 
+		#normally in transforemrs QxK^T is used for attention then multiply that map with the V to get the output. So, here inv_mag has discarede the magnitude of the complex number and only kept the phase information. So, the attention map is calculated using only the phase information. 
+
 		q = q.reshape(b, self.num_heads, -1, h * w)
-		k = k.reshape(b, self.num_heads, -1, h * w)
-		v = v.reshape(b, self.num_heads, -1, h * w)
+		#num_heads is just multi head attention to get more views of the images, channels are split into num_heads parts and each part is used to calculate attention map H x W attention map. So, the number of channels in each head is c/num_heads. The -1 is used to automatically calculate the number of channels in each head. The h*w is the number of pixels in the image. So, the shape of q is (b, num_heads, c/num_heads, h*w). The same is done for k and v. And then multiply with v. So a channle 1 might never interact with channel 11.
+		#so many songle attentions
+
+		k = k.reshape(b, self.num_heads, -1, h * w) #in a vit hxw is a pixel and represented by a vector of length c/num_heads. but here each channel is represented by a vector of length h*w. 
+		v = v.reshape(b, self.num_heads, -1, h * w) 
 
 		q, k = F.normalize(q, dim=-1), F.normalize(k, dim=-1)
+		# it keeps the dot products in the next step from exploding or vanishing depending on how large the raw values happen to be. It's similar in spirit to why we usually scale attention by 1/sqrt(d) in standard transformers, just done via vector normalization instead
 
+
+		#(c/heads, hw) @ (hw, c/heads) → (c/heads, c/heads)
+		#attn[i][j] = similarity between channel i and channel j, computed by comparing their values across ALL 64 pixels at once
+		#vit would be pixel i and pixel j, computed by comparing their values across ALL 768 channels at once
 		attn = torch.softmax(torch.matmul(q, k.transpose(-2, -1).contiguous()) * self.temperature, dim=-1)
 		out = self.project_out(torch.matmul(attn, v).reshape(b, -1, h, w))
 		return out
@@ -135,9 +146,9 @@ class TransformerBlock(nn.Module):
 		self.ffn = GDFN(channels, expansion_factor)
 
 	def forward(self, x):
-		b, c, h, w = x.shape
+		b, c, h, w = x.shape #(B,C,H,W) 
 		x = x + self.attn(self.norm1(x.reshape(b, c, -1).transpose(-2, -1).contiguous()).transpose(-2, -1)
-						  .contiguous().reshape(b, c, h, w))
+						  .contiguous().reshape(b, c, h, w)) #layernorm works on channels, so we need to reshape the input to (B,C,H*W) and then transpose to (B,H*W,C) to apply layernorm on channels. After that, we need to transpose back and reshape to (B,C,H,W)
 		x = x + self.ffn(self.norm2(x.reshape(b, c, -1).transpose(-2, -1).contiguous()).transpose(-2, -1)
 						 .contiguous().reshape(b, c, h, w))
 		return x
@@ -182,6 +193,8 @@ class Restormer(nn.Module):
 		self.attention = nn.ModuleList([ECA(num_ch) for num_ch in ch])
 	   
 		self.embed_conv_rgb = nn.Conv2d(3, channels[0], kernel_size=3, padding=1, bias=False)
+		# (B, 16, H, W)
+
 		self.ups1 = UpSample1(32)
 
 		self.encoders = nn.ModuleList([nn.Sequential(*[TransformerBlock(num_ch, num_ah, expansion_factor) for _ in range(num_tb)]) for num_tb, num_ah, num_ch in
@@ -209,10 +222,10 @@ class Restormer(nn.Module):
 		self.outputl=nn.Conv2d(32, 8, kernel_size=3, padding=1, bias=False)
 								 
 	def forward(self,RGB_input):
-
+		# RGB_input.shape == (B, 3, H, W)
 		fo_rgb = self.embed_conv_rgb(RGB_input)
 
-		out_enc_rgb1 = self.encoders[0](fo_rgb)
+		out_enc_rgb1 = self.encoders[0](fo_rgb) 
 		out_enc_rgb2 = self.encoders[1](self.downs[0](out_enc_rgb1))
 		out_enc_rgb3 = self.encoders[2](self.downs[1](out_enc_rgb2))
 		out_enc_rgb4 = self.encoders[3](self.downs[2](out_enc_rgb3))
@@ -225,9 +238,12 @@ class Restormer(nn.Module):
 
 		fd = self.decoders[2](torch.cat([self.ups[2](out_dec2),self.attention[2](out_enc_rgb1)], dim=1))
 
-		fr = self.refinement(fd)  
+		fr = self.refinement(fd)  # 32 256 256
 		#fr is final output 
 		
-		outi=self.ups1(fr) 
+		outi=self.ups1(fr) #16 512 512
 
 		return self.output(self.outputl(fr)),self.output(self.output1(outi))
+	
+
+#num_heads=[1,2,4,8] number of attention heads in each transformer block
