@@ -184,7 +184,7 @@ class UpSample1(nn.Module):
 
 
 class Restormer(nn.Module):
-	def __init__(self, num_blocks=[2, 3, 3, 4], num_heads=[1, 2, 4, 8], channels=[16, 32, 64, 128], num_refinement=4,
+	def __init__(self, num_blocks=[4,6,6,8], num_heads=[1, 2, 4, 8], channels=[16, 32, 64, 128], num_refinement=4,
 				 expansion_factor=2.66, ch=[16,16,32,64]):
 		
 		super(Restormer, self).__init__()
